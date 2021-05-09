@@ -287,7 +287,7 @@ for e in range(train_epochs):
                         loss = loss_fn_ce(out, y.to(device))
                     test_loss_rob += loss.item() * x.size(0)
                     test_correct_rob += (out.max(dim=1)[1] == y.to(device)).sum().item()
-                    pred = dknn(x_adv.to(device)).argmax(axis=1)
+                    pred = dknn(x_adv).argmax(axis=1)
                     test_correct_dknn += (pred == y.numpy()).sum()
                 if not disable_ask:
                     t.set_postfix({

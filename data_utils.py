@@ -1,5 +1,6 @@
 import os
 import PIL
+import random
 import tarfile
 import smart_open
 from torchvision import transforms, datasets
@@ -26,6 +27,7 @@ class GenericDataset(Dataset):
 class Imagenette(Dataset):
     url = "https://s3.amazonaws.com/fast-ai-imageclas/imagenette2-160.tgz"
     data_folder = "imagenette2-160"
+    internal_random_seed = 1234
 
     def __init__(
             self,
@@ -53,6 +55,12 @@ class Imagenette(Dataset):
             self.targets.extend(i for _ in range(len(self.data) - self.data_size))
             self.data_size = len(self.data)
         self.transform = transform
+
+    def _shuffle(self):
+        random.seed(self.internal_random_seed)
+        random.shuffle(self.data)
+        random.seed(self.internal_random_seed)
+        random.shuffle(self.targets)
 
     def _download(self, download=False):
         if download:
