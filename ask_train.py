@@ -40,11 +40,13 @@ parser.add_argument("--max-iter", help="maximum iterations for attacks", type=in
 parser.add_argument("--metric", help="distance metric for ask loss and dknn", default="cosine")
 parser.add_argument("--temperature", help="scaling factor for ask loss", type=float, default=0.1)
 parser.add_argument("--seed", help="random seed for reproducibility", type=int, default=3)
-parser.add_argument("--n_class", help="number of classes in the classification problem", type=int, default=10)
+parser.add_argument("--n-class", help="number of classes in the classification problem", type=int, default=10)
 parser.add_argument("--dataset", help="which dataset to use", choices=["cifar10", "imagenette"])
 parser.add_argument("--checkpoint", "-c", help="temporary checkpoint", default="./chkpts/unnamed.pt")
 parser.add_argument("--output", "-o", help="output log file", default="")
 parser.add_argument("--download", "-d", help="whether to download the dataset", action="store_true")
+parser.add_argument("--disable-ask", help="disable ask training and use the standard adversarial training",
+                    action="store_true")
 
 args = parser.parse_args()
 
@@ -60,6 +62,8 @@ n_class = args.n_class
 dataset = args.dataset
 download = args.download
 hidden_layer = args.hidden_layer
+num_eval = args.num_eval
+disable_ask = args.disable_ask
 
 # load data
 trainloader, testloader = get_dataloaders(
@@ -154,64 +158,92 @@ for e in range(train_epochs):
     train_loss_clean = 0
     train_correct_clean = 0
     train_loss_ask = 0
+    train_loss_adv = 0
+    train_correct_adv = 0
     train_total = 0
     model.train()
     ref_data = iter(zip(*refloader))
     with tqdm(trainloader, desc=f"{last_epoch + 2 + e}/{train_epochs} epochs") as t:
         for i, (x, y) in enumerate(t):
-            x_ref = torch.cat(next(ref_data), dim=0)
-            y_ref = torch.LongTensor(range(10)).repeat_interleave(n_ref // 10)
-            if ref_advaug:
-                if mixed:
-                    x_ref = torch.cat([
-                        x_ref,
-                        pgd_train.generate(model, x_ref, y_ref, device=device)
-                    ], dim=0)
-                    y_ref = y_ref.repeat_interleave(2)
-                else:
-                    x_ref = pgd_train.generate(model, x_ref, y_ref, device=device)
-            model.eval()
-            with torch.no_grad():
-                out_hd, out = model(x.to(device), extra_out=hidden_layer)
-                loss_ce = loss_fn_ce(out, y.to(device))
-            model.train()
-            out_hdref, _ = model(x_ref.to(device), extra_out=hidden_layer)
-            train_loss_clean += loss_ce.item() * x.size(0)
-            train_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
-            train_total += x.size(0)
-            x_hdadv = x.clone().detach() + (2 * torch.rand_like(x) - 1) * eps
-            for _ in range(max_iter):
-                x_hdadv.requires_grad_(True)
+            if not disable_ask:
+                x_ref = torch.cat(next(ref_data), dim=0)
+                y_ref = torch.LongTensor(range(10)).repeat_interleave(n_ref // 10)
+                if ref_advaug:
+                    if mixed:
+                        x_ref = torch.cat([
+                            x_ref,
+                            pgd_train.generate(model, x_ref, y_ref, device=device)
+                        ], dim=0)
+                        y_ref = y_ref.repeat_interleave(2)
+                    else:
+                        x_ref = pgd_train.generate(model, x_ref, y_ref, device=device)
+                model.eval()
+                with torch.no_grad():
+                    out_hd, out = model(x.to(device), extra_out=hidden_layer)
+                    loss_ce = loss_fn_ce(out, y.to(device))
+                model.train()
+                out_hdref, _ = model(x_ref.to(device), extra_out=hidden_layer)
+                train_loss_clean += loss_ce.item() * x.size(0)
+                train_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
+                train_total += x.size(0)
+                x_hdadv = x.clone().detach() + (2 * torch.rand_like(x) - 1) * eps
+                for _ in range(max_iter):
+                    x_hdadv.requires_grad_(True)
+                    out_hdadv, _ = model(x_hdadv.to(device), extra_out=hidden_layer)
+                    if include_self:
+                        loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device), out_hd)
+                    else:
+                        loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device))
+                    grad = torch.autograd.grad(loss_cknn, x_hdadv)[0].detach()
+                    x_hdadv = (x_hdadv.data + step_size * grad.sign()).clamp(0, 1)
+                    x_hdadv = ((x_hdadv - x).clamp(-eps, eps) + x).detach()
+                x_adv = pgd_train.generate(model, x, y, device=device)
+                model.train()
+                _, out_adv = model(x_adv.to(device), extra_out=hidden_layer)
+                out_hd, _ = model(x.to(device), extra_out=hidden_layer)
+                loss_ce = loss_fn_ce(out_adv.to(device), y.to(device))
                 out_hdadv, _ = model(x_hdadv.to(device), extra_out=hidden_layer)
                 if include_self:
                     loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device), out_hd)
                 else:
                     loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device))
-                grad = torch.autograd.grad(loss_cknn, x_hdadv)[0].detach()
-                x_hdadv = (x_hdadv.data + step_size * grad.sign()).clamp(0, 1)
-                x_hdadv = ((x_hdadv - x).clamp(-eps, eps) + x).detach()
-            x_adv = pgd_train.generate(model, x, y, device=device)
-            model.train()
-            _, out_adv = model(x_adv.to(device), extra_out=hidden_layer)
-            out_hd, _ = model(x.to(device), extra_out=hidden_layer)
-            loss_ce = loss_fn_ce(out_adv.to(device), y.to(device))
-            out_hdadv, _ = model(x_hdadv.to(device), extra_out=hidden_layer)
-            if include_self:
-                loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device), out_hd)
+                loss = loss_ce + c * loss_cknn
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                train_loss_ask += loss.item() * x.size(0)  # ASK Advsersarial Soft K-nearest neighbor loss
             else:
-                loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device))
-            loss = loss_ce + c * loss_cknn
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            train_loss_ask += loss.item() * x.size(0)  # ASK Advsersarial Soft K-nearest neighbor loss
+                model.eval()
+                with torch.no_grad():
+                    out = model(x.to(device))
+                    loss_ce = loss_fn_ce(out,y.to(device))
+                    train_loss_clean += loss_ce.item()
+                    train_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
+                x_adv = pgd_train.generate(model, x, y, device=device)
+                model.train()
+                out_adv = model(x_adv.to(device))
+                loss = loss_fn_ce(out_adv, y.to(device))
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                train_loss_adv += loss.item()
+                train_correct_adv += (out_adv.max(dim=1)[1] == y.to(device)).sum().item()
+                train_total += x.size(0)
             if print_results:
                 if i < len(trainloader) - 1:
-                    t.set_postfix({
-                        "train_loss_clean": train_loss_clean / train_total,
-                        "train_acc_clean": train_correct_clean / train_total,
-                        "train_loss_ask": train_loss_ask / train_total,
-                    })
+                    if not disable_ask:
+                        t.set_postfix({
+                            "train_loss_clean": train_loss_clean / train_total,
+                            "train_acc_clean": train_correct_clean / train_total,
+                            "train_loss_ask": train_loss_ask / train_total,
+                        })
+                    else:
+                        t.set_postfix({
+                            "train_loss_clean": train_loss_clean / train_total,
+                            "train_acc_clean": train_correct_clean / train_total,
+                            "train_loss_adv": train_loss_adv / train_total,
+                            "train_acc_adv": train_correct_adv / train_total,
+                        })
                 else:
                     scheduler.step()
                     dknn = DKNN(
@@ -229,7 +261,7 @@ for e in range(train_epochs):
                     test_correct_rob = 0
                     test_total = 0
                     model.eval()
-                    for _, (x, y) in zip(range(4), testloader):
+                    for _, (x, y) in zip(range(num_eval), testloader):
                         with torch.no_grad():
                             out = model(x.to(device))
                             loss = loss_fn_ce(out, y.to(device))
@@ -244,17 +276,29 @@ for e in range(train_epochs):
                         test_correct_rob += (out.max(dim=1)[1] == y.to(device)).sum().item()
                         pred = dknn(x_adv.to(device)).argmax(axis=1)
                         test_correct_dknn += (pred == y.numpy()).sum()
-                    del dknn
-                    t.set_postfix({
-                        "train_loss_clean": train_loss_clean / train_total,
-                        "train_acc_clean": train_correct_clean / train_total,
-                        "train_loss_ask": train_loss_ask / train_total,
-                        "test_loss_clean": test_loss_clean / test_total,
-                        "test_acc_clean": test_correct_clean / test_total,
-                        "test_loss_pgdrob": test_loss_rob / test_total,
-                        "test_acc_pgdrob": test_correct_rob / test_total,
-                        "test_acc_dknn": test_correct_dknn / test_total
-                    })
+                    if not disable_ask:
+                        t.set_postfix({
+                            "train_loss_clean": train_loss_clean / train_total,
+                            "train_acc_clean": train_correct_clean / train_total,
+                            "train_loss_adv": train_loss_adv / train_total,
+                            "train_acc_adv": train_correct_adv / train_total,
+                            "test_loss_clean": test_loss_clean / test_total,
+                            "test_acc_clean": test_correct_clean / test_total,
+                            "test_loss_pgdrob": test_loss_rob / test_total,
+                            "test_acc_pgdrob": test_correct_rob / test_total,
+                            "test_acc_dknn": test_correct_dknn / test_total
+                        })
+                    else:
+                        t.set_postfix({
+                            "train_loss_clean": train_loss_clean / train_total,
+                            "train_acc_clean": train_correct_clean / train_total,
+                            "train_loss_ask": train_loss_ask / train_total,
+                            "test_loss_clean": test_loss_clean / test_total,
+                            "test_acc_clean": test_correct_clean / test_total,
+                            "test_loss_pgdrob": test_loss_rob / test_total,
+                            "test_acc_pgdrob": test_correct_rob / test_total,
+                            "test_acc_dknn": test_correct_dknn / test_total
+                        })
                     if test_correct_dknn / test_total > best_acc and test_correct_clean / test_total > 0.83:
                         best_acc = test_correct_dknn / test_total
                         state_dict = model.state_dict()

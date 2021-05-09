@@ -51,7 +51,7 @@ class DKNN:
                 hidden_reprs_batch, _ = self._model(x_batch.to(self.device))
             if self.metric == "cosine":
                 hidden_reprs_batch = [
-                    hidden_repr_batch/hidden_repr_batch.pow(2).sum(dim=1,keepdim=True).sqrt()
+                    hidden_repr_batch/hidden_repr_batch.pow(2).sum(dim=1, keepdim=True).sqrt()
                     for hidden_repr_batch in hidden_reprs_batch
                 ]
             hidden_reprs.append(hidden_reprs_batch)

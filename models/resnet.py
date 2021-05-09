@@ -102,7 +102,7 @@ class ResNet(nn.Module):
         out2 = self.layer2(out1)
         out3 = self.layer3(out2)
         out4 = self.layer4(out3)
-        out = self.linear(out4)
+        out = self.classifier(out4)
         if extra_out is None:
             return out
         else:
