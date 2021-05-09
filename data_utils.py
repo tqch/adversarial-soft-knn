@@ -1,0 +1,117 @@
+import os
+import PIL
+import tarfile
+import smart_open
+from torchvision import transforms, datasets
+from torch.utils.data import DataLoader, Dataset
+
+
+class GenericDataset(Dataset):
+    def __init__(self, data, label, transform=None):
+        self.data = data
+        self.label = label
+        self.transform = transform
+        self.data_size = data.shape[0]
+
+    def __getitem__(self, idx):
+        img = transforms.ToPILImage()(self.data[idx])
+        if self.transform is not None:
+            img = self.transform(img)
+        return img
+
+    def __len__(self):
+        return self.data_size
+
+
+class Imagenette(Dataset):
+    url = "https://s3.amazonaws.com/fast-ai-imageclas/imagenette2-160.tgz"
+    data_folder = "imagenette2-160"
+
+    def __init__(
+            self,
+            root,
+            download=False,
+            train=True,
+            transform=None
+    ):
+        self.root = root
+        self._download(download)
+        self.data_path = os.path.join(
+            root, self.data_folder, "train" if train else "val")
+        self.class_folders = sorted(
+            f for f in os.listdir(self.data_path)
+            if os.path.isdir(os.path.join(self.data_path, f))
+        )
+        self.data = []
+        self.targets = []
+        self.data_size = 0
+        self.train = train
+        for i, fd in enumerate(self.class_folders):
+            prefix = os.path.join(self.data_path, fd)
+            self.data.extend(sorted(
+                os.path.join(prefix, f) for f in os.listdir(prefix) if f.endswith("JPEG")))
+            self.targets.extend(i for _ in range(len(self.data) - self.data_size))
+            self.data_size = len(self.data)
+        self.transform = transform
+
+    def _download(self, download=False):
+        if download:
+            with smart_open.open(self.url, "rb") as file:
+                with tarfile.open(fileobj=file, mode="r") as tgz:
+                    tgz.extractall(self.root)
+
+    def __getitem__(self, idx):
+        img = PIL.Image.open(self.data[idx]).convert("RGB")
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, self.targets[idx]
+
+    def __len__(self):
+        return self.data_size
+
+
+def get_transforms(dataset="cifar10", augmentation=True):
+    if dataset == "cifar10":
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor()
+        ]) if augmentation else transforms.ToTensor()
+        transform_test = transforms.ToTensor()
+    if dataset == "imagenette":
+        transform_train = transforms.Compose([
+            transforms.RandomCrop((120, 120), padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor()
+        ]) if augmentation else transforms.Compose([
+            transforms.Resize((120, 120)),
+            transforms.ToTensor()
+        ])
+        transform_test = transforms.Compose([
+            transforms.Resize((120, 120)),
+            transforms.ToTensor()
+        ])
+    return transform_train, transform_test
+
+
+def get_dataloaders(
+        dataset,
+        root,
+        download,
+        batch_size,
+        augmentation=True
+):
+    if augmentation:
+        transform_train, transform_test = get_transforms(dataset, True)
+    else:
+        transform_train, transform_test = get_transforms(dataset, False)
+    if dataset == "cifar10":
+        dataset_class = dataset.CIFAR10
+    if dataset == "imagenette":
+        dataset_class = Imagenette
+    trainset = dataset_class(root=root, download=download, train=True, transform=transform_train)
+    testset = dataset_class(root=root, download=download, train=False, transform=transform_test)
+    trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size)
+    testloader = DataLoader(testset, shuffle=False, batch_size=2 * batch_size)
+
+    return trainloader, testloader
