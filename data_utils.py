@@ -80,15 +80,15 @@ def get_transforms(dataset="cifar10", augmentation=True):
         transform_test = transforms.ToTensor()
     if dataset == "imagenette":
         transform_train = transforms.Compose([
-            transforms.RandomCrop((120, 120), padding=4),
+            transforms.RandomCrop((128, 128), padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor()
         ]) if augmentation else transforms.Compose([
-            transforms.Resize((120, 120)),
+            transforms.Resize((128, 128)),
             transforms.ToTensor()
         ])
         transform_test = transforms.Compose([
-            transforms.Resize((120, 120)),
+            transforms.Resize((128, 128)),
             transforms.ToTensor()
         ])
     return transform_train, transform_test
@@ -99,19 +99,20 @@ def get_dataloaders(
         root,
         download,
         batch_size,
-        augmentation=True
+        augmentation=True,
+        num_workers=4
 ):
     if augmentation:
         transform_train, transform_test = get_transforms(dataset, True)
     else:
         transform_train, transform_test = get_transforms(dataset, False)
     if dataset == "cifar10":
-        dataset_class = dataset.CIFAR10
+        dataset_class = datasets.CIFAR10
     if dataset == "imagenette":
         dataset_class = Imagenette
     trainset = dataset_class(root=root, download=download, train=True, transform=transform_train)
     testset = dataset_class(root=root, download=download, train=False, transform=transform_test)
-    trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size)
-    testloader = DataLoader(testset, shuffle=False, batch_size=2 * batch_size)
+    trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size, num_workers=num_workers)
+    testloader = DataLoader(testset, shuffle=False, batch_size=batch_size, num_workers=num_workers)
 
     return trainloader, testloader

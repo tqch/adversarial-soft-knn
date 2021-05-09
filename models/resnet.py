@@ -73,9 +73,10 @@ class ResNet(nn.Module):
         self.in_planes = 64
 
         self.feature = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False),
             nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(3, 2, 1)
         )
 
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
@@ -106,7 +107,7 @@ class ResNet(nn.Module):
         if extra_out is None:
             return out
         else:
-            return [out1, out2, out3, out4][extra_out], out
+            return [out1, out2, out3, out4][extra_out].flatten(start_dim=1), out
 
 
 def ResNet18():

@@ -47,4 +47,4 @@ class VGG16(nn.Module):
         if extra_out is None:
             return out
         else:
-            return [out1, out2, out3, out4, out5][extra_out], out
+            return [out1, out2, out3, out4, out5][extra_out].flatten(start_dim=1), out

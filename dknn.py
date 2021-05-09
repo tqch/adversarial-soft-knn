@@ -8,21 +8,21 @@ from tqdm import tqdm
 class DKNN:
 
     def __init__(
-        self,
-        model,
-        train_data,
-        train_targets,
-        n_class=10,
-        hidden_layers=-1,
-        n_neighbors=5,
-        metric="l2",
-        device=torch.device("cpu")
+            self,
+            model,
+            train_data,
+            train_targets,
+            n_class=10,
+            hidden_layers=-1,
+            n_neighbors=5,
+            metric="l2",
+            batch_size=128,
+            device=torch.device("cpu")
     ):
 
         self.hidden_layers = hidden_layers
         self._model = self._wrap_model(model)
 
-        
         self.train_data = train_data
         self.train_targets = np.array(train_targets)
 
@@ -36,22 +36,23 @@ class DKNN:
         self.metric = metric
         self.n_neighbors = n_neighbors
         self._nns = self._build_nns()
+        self.batch_size = batch_size
 
-    def _get_hidden_repr(self, x, batch_size=128, return_targets=False):
+    def _get_hidden_repr(self, x, return_targets=False):
         hidden_reprs = []
         targets = None
         if return_targets:
             outs = []
 
-        for i in range(0, x.size(0), batch_size):
-            x_batch = x[i:i + batch_size]
+        for i in range(0, x.size(0), self.batch_size):
+            x_batch = x[i:i + self.batch_size]
             if return_targets:
                 hidden_reprs_batch, outs_batch = self._model(x_batch.to(self.device))
             else:
                 hidden_reprs_batch, _ = self._model(x_batch.to(self.device))
             if self.metric == "cosine":
                 hidden_reprs_batch = [
-                    hidden_repr_batch/hidden_repr_batch.pow(2).sum(dim=1, keepdim=True).sqrt()
+                    hidden_repr_batch / hidden_repr_batch.pow(2).sum(dim=1, keepdim=True).sqrt()
                     for hidden_repr_batch in hidden_reprs_batch
                 ]
             hidden_reprs.append(hidden_reprs_batch)
@@ -121,7 +122,7 @@ class DKNN:
             lambda x: np.bincount(x, minlength=10),
             nn_labels
         )))
-        return nn_labels_count/len(self.hidden_layers)/self.n_neighbors
+        return nn_labels_count / len(self.hidden_layers) / self.n_neighbors
 
     def __call__(self, x):
         return self.predict(x)

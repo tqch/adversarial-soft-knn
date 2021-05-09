@@ -22,36 +22,37 @@ parser.add_argument("--no-mixing", help="whether not to mix clean data with thei
                     action="store_true")
 parser.add_argument("--n-ref", help="the number of reference data per class", type=int, default=5)
 parser.add_argument("--beta", help="balancing factor between ce and ask loss", type=float, default=1.0)
-parser.add_argument("--data-dir", help="the path to dataset directory", default="./datasets")
+parser.add_argument("--root", help="the path to dataset directory", default="./datasets")
 parser.add_argument("--num-eval", help="the number of batches to evaluate", type=int, default=4)
 parser.add_argument("--no-cuda", help="whether to use cuda", action="store_true")
 parser.add_argument("--dknn-size", help="the number of training data used for dknn evaluation", type=int, default=20000)
-parser.add_argument("--batch_size", help="batch size for training", type=int, default=128)
+parser.add_argument("--batch-size", help="batch size for training", type=int, default=128)
 parser.add_argument("--lr", help="learning rate", type=float, default=0.1)
 parser.add_argument("--momentum", "-m", type=float, default=0.9)
 parser.add_argument("--weight-decay", "-w", type=float, default=0.0002)
-parser.add_argument("--eps-ask", help="maximum perturbation of ASK attack", type=float, default=8 / 255)
-parser.add_argument("--eps-train", help="maximum perturbation of PGD attack during training", type=float,
-                    default=4 / 255)
-parser.add_argument("--eps-eval", help="maximum perturbation of PGD attack during evaluation", type=float,
-                    default=4 / 255)
-parser.add_argument("--step-size", help="step size of each attack", type=float, default=2 / 255)
+parser.add_argument("--eps-ask", help="maximum perturbation of ASK attack", type=int, default=8)
+parser.add_argument("--eps-train", help="maximum perturbation of PGD attack during training", type=int,
+                    default=4)
+parser.add_argument("--eps-eval", help="maximum perturbation of PGD attack during evaluation", type=int,
+                    default=4)
+parser.add_argument("--step-size", help="step size of each attack", type=int, default=2)
 parser.add_argument("--max-iter", help="maximum iterations for attacks", type=int, default=10)
 parser.add_argument("--metric", help="distance metric for ask loss and dknn", default="cosine")
 parser.add_argument("--temperature", help="scaling factor for ask loss", type=float, default=0.1)
 parser.add_argument("--seed", help="random seed for reproducibility", type=int, default=3)
 parser.add_argument("--n-class", help="number of classes in the classification problem", type=int, default=10)
 parser.add_argument("--dataset", help="which dataset to use", choices=["cifar10", "imagenette"])
-parser.add_argument("--checkpoint", "-c", help="temporary checkpoint", default="./chkpts/unnamed.pt")
+parser.add_argument("--checkpoint", "-c", help="temporary checkpoint", default="./checkpoints/ask_trained.pt")
 parser.add_argument("--output", "-o", help="output log file", default="")
 parser.add_argument("--download", "-d", help="whether to download the dataset", action="store_true")
 parser.add_argument("--disable-ask", help="disable ask training and use the standard adversarial training",
                     action="store_true")
+parser.add_argument("--num-workers", help="set number of subprocesses in data loading", type=int, default=4)
 
 args = parser.parse_args()
 
-data_dir = args.data_dir
-download = not os.path.exists(os.path.join(data_dir, "cifar-10-batches-py"))
+root = args.root
+download = not os.path.exists(os.path.join(root, "cifar-10-batches-py"))
 device = torch.device("cpu" if args.no_cuda else "cuda")
 train_size_for_eval = args.dknn_size
 batch_size = args.batch_size
@@ -67,7 +68,7 @@ disable_ask = args.disable_ask
 
 # load data
 trainloader, testloader = get_dataloaders(
-    dataset, root=data_dir, download=download, batch_size=batch_size, augmentation=True)
+    dataset, root=root, download=download, batch_size=batch_size, augmentation=True)
 
 if dataset == "cifar10":
     model = VGG16()
@@ -75,11 +76,11 @@ if dataset == "imagenette":
     model = ResNet18()
 
 # dknn training data
-trainloader, _ = get_dataloaders(
-    dataset, root=data_dir, download=download, batch_size=batch_size, augmentation=False)
+trainloader_dknn, _ = get_dataloaders(
+    dataset, root=root, download=download, batch_size=batch_size, augmentation=False)
 train_data = []
 train_targets = []
-for x, y in trainloader:
+for x, y in trainloader_dknn:
     train_data.append(x)
     train_targets.append(y)
 train_data = torch.cat(train_data, dim=0)
@@ -100,25 +101,35 @@ loss_fn_ce = nn.CrossEntropyLoss()
 loss_fn_cknn = ASKLoss(temperature=temperature, metric=metric)
 
 # pgd for training and evaluation
-pgd_train = PGD(eps=args.eps_train, step_size=args.step_size, batch_size=batch_size, loss_fn=loss_fn_ce)
-pgd_eval = PGD(eps=args.eps_eval, step_size=args.step_size, batch_size=2 * batch_size, loss_fn=loss_fn_ce)
+pgd_train = PGD(
+    eps=args.eps_train/255,
+    step_size=args.step_size/255,
+    batch_size=batch_size,
+    loss_fn=loss_fn_ce
+)
+pgd_eval = PGD(
+    eps=args.eps_eval/255,
+    step_size=args.step_size/255,
+    batch_size=batch_size,
+    loss_fn=loss_fn_ce
+)
 
 # hyperparameters for training
 include_self = args.include_self
 ref_advaug = not args.no_adv
 mixed = not args.no_mixing
 max_iter = args.max_iter
-eps = args.eps_ask
+eps = args.eps_ask/255
 step_size = args.step_size
 c = args.beta
 n_ref = args.n_ref
-print_results = True
 
 # reference dataloader for each class
-transform_train, _ = get_transforms(dataset, True)
-refloader = [DataLoader(GenericDataset(
-    train_data[train_targets == i], i, transform_train
-), shuffle=True, batch_size=n_ref) for i in range(10)]
+if not disable_ask:
+    transform_train, _ = get_transforms(dataset, True)
+    refloader = [DataLoader(GenericDataset(
+        train_data[train_targets == i], i, transform_train
+    ), shuffle=True, batch_size=n_ref) for i in range(10)]
 
 # keep track of best validation results and model weights
 best_acc = 0
@@ -126,6 +137,8 @@ state_dict = None
 
 # initialize the model or restart from a previous checkpoint
 checkpoint_path = args.checkpoint
+if not os.path.exists(os.path.dirname(checkpoint_path)):
+    os.makedirs(os.path.dirname(checkpoint_path))
 model.to(device)
 optimizer = SGD(
     model.parameters(),
@@ -167,7 +180,7 @@ for e in range(train_epochs):
         for i, (x, y) in enumerate(t):
             if not disable_ask:
                 x_ref = torch.cat(next(ref_data), dim=0)
-                y_ref = torch.LongTensor(range(10)).repeat_interleave(n_ref // 10)
+                y_ref = torch.LongTensor(range(10)).repeat_interleave(n_ref)
                 if ref_advaug:
                     if mixed:
                         x_ref = torch.cat([
@@ -216,8 +229,8 @@ for e in range(train_epochs):
                 model.eval()
                 with torch.no_grad():
                     out = model(x.to(device))
-                    loss_ce = loss_fn_ce(out,y.to(device))
-                    train_loss_clean += loss_ce.item()
+                    loss_ce = loss_fn_ce(out, y.to(device))
+                    train_loss_clean += loss_ce.item() * x.size(0)
                     train_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
                 x_adv = pgd_train.generate(model, x, y, device=device)
                 model.train()
@@ -226,87 +239,87 @@ for e in range(train_epochs):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                train_loss_adv += loss.item()
+                train_loss_adv += loss.item() * x.size(0)
                 train_correct_adv += (out_adv.max(dim=1)[1] == y.to(device)).sum().item()
                 train_total += x.size(0)
-            if print_results:
-                if i < len(trainloader) - 1:
-                    if not disable_ask:
-                        t.set_postfix({
-                            "train_loss_clean": train_loss_clean / train_total,
-                            "train_acc_clean": train_correct_clean / train_total,
-                            "train_loss_ask": train_loss_ask / train_total,
-                        })
-                    else:
-                        t.set_postfix({
-                            "train_loss_clean": train_loss_clean / train_total,
-                            "train_acc_clean": train_correct_clean / train_total,
-                            "train_loss_adv": train_loss_adv / train_total,
-                            "train_acc_adv": train_correct_adv / train_total,
-                        })
+            if i < len(trainloader) - 1:
+                if not disable_ask:
+                    t.set_postfix({
+                        "train_loss_clean": train_loss_clean / train_total,
+                        "train_acc_clean": train_correct_clean / train_total,
+                        "train_loss_ask": train_loss_ask / train_total,
+                    })
                 else:
-                    scheduler.step()
-                    dknn = DKNN(
-                        model,
-                        train_data_dknn,
-                        train_targets_dknn,
-                        hidden_layers=hidden_layer,
-                        device=device,
-                        metric=metric
-                    )
-                    test_correct_dknn = 0
-                    test_loss_clean = 0
-                    test_correct_clean = 0
-                    test_loss_rob = 0
-                    test_correct_rob = 0
-                    test_total = 0
-                    model.eval()
-                    for _, (x, y) in zip(range(num_eval), testloader):
-                        with torch.no_grad():
-                            out = model(x.to(device))
-                            loss = loss_fn_ce(out, y.to(device))
-                        test_loss_clean += loss.item() * x.size(0)
-                        test_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
-                        test_total += x.size(0)
-                        x_adv = pgd_eval.generate(model, x, y, device=device)
-                        with torch.no_grad():
-                            out = model(x_adv.to(device))
-                            loss = loss_fn_ce(out, y.to(device))
-                        test_loss_rob += loss.item() * x.size(0)
-                        test_correct_rob += (out.max(dim=1)[1] == y.to(device)).sum().item()
-                        pred = dknn(x_adv.to(device)).argmax(axis=1)
-                        test_correct_dknn += (pred == y.numpy()).sum()
-                    if not disable_ask:
-                        t.set_postfix({
-                            "train_loss_clean": train_loss_clean / train_total,
-                            "train_acc_clean": train_correct_clean / train_total,
-                            "train_loss_adv": train_loss_adv / train_total,
-                            "train_acc_adv": train_correct_adv / train_total,
-                            "test_loss_clean": test_loss_clean / test_total,
-                            "test_acc_clean": test_correct_clean / test_total,
-                            "test_loss_pgdrob": test_loss_rob / test_total,
-                            "test_acc_pgdrob": test_correct_rob / test_total,
-                            "test_acc_dknn": test_correct_dknn / test_total
-                        })
-                    else:
-                        t.set_postfix({
-                            "train_loss_clean": train_loss_clean / train_total,
-                            "train_acc_clean": train_correct_clean / train_total,
-                            "train_loss_ask": train_loss_ask / train_total,
-                            "test_loss_clean": test_loss_clean / test_total,
-                            "test_acc_clean": test_correct_clean / test_total,
-                            "test_loss_pgdrob": test_loss_rob / test_total,
-                            "test_acc_pgdrob": test_correct_rob / test_total,
-                            "test_acc_dknn": test_correct_dknn / test_total
-                        })
-                    if test_correct_dknn / test_total > best_acc and test_correct_clean / test_total > 0.83:
-                        best_acc = test_correct_dknn / test_total
-                        state_dict = model.state_dict()
-                        checkpoint = e + 1
-                        optimizer_state = optimizer.state_dict()
-                        torch.save({
-                            "state_dict": state_dict,
-                            "checkpoint": checkpoint,
-                            "best_acc": best_acc,
-                            "optimizer_state": optimizer_state,
-                        }, checkpoint_path)
+                    t.set_postfix({
+                        "train_loss_clean": train_loss_clean / train_total,
+                        "train_acc_clean": train_correct_clean / train_total,
+                        "train_loss_adv": train_loss_adv / train_total,
+                        "train_acc_adv": train_correct_adv / train_total,
+                    })
+            else:
+                scheduler.step()
+                dknn = DKNN(
+                    model,
+                    train_data_dknn,
+                    train_targets_dknn,
+                    hidden_layers=[hidden_layer, ],
+                    device=device,
+                    metric=metric,
+
+                )
+                test_correct_dknn = 0
+                test_loss_clean = 0
+                test_correct_clean = 0
+                test_loss_rob = 0
+                test_correct_rob = 0
+                test_total = 0
+                model.eval()
+                for _, (x, y) in zip(range(num_eval), testloader):
+                    with torch.no_grad():
+                        out = model(x.to(device))
+                        loss = loss_fn_ce(out, y.to(device))
+                    test_loss_clean += loss.item() * x.size(0)
+                    test_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
+                    test_total += x.size(0)
+                    x_adv = pgd_eval.generate(model, x, y, device=device)
+                    with torch.no_grad():
+                        out = model(x_adv.to(device))
+                        loss = loss_fn_ce(out, y.to(device))
+                    test_loss_rob += loss.item() * x.size(0)
+                    test_correct_rob += (out.max(dim=1)[1] == y.to(device)).sum().item()
+                    pred = dknn(x_adv.to(device)).argmax(axis=1)
+                    test_correct_dknn += (pred == y.numpy()).sum()
+                if not disable_ask:
+                    t.set_postfix({
+                        "train_loss_clean": train_loss_clean / train_total,
+                        "train_acc_clean": train_correct_clean / train_total,
+                        "train_loss_ask": train_loss_ask / train_total,
+                        "test_loss_clean": test_loss_clean / test_total,
+                        "test_acc_clean": test_correct_clean / test_total,
+                        "test_loss_pgdrob": test_loss_rob / test_total,
+                        "test_acc_pgdrob": test_correct_rob / test_total,
+                        "test_acc_dknn": test_correct_dknn / test_total
+                    })
+                else:
+                    t.set_postfix({
+                        "train_loss_clean": train_loss_clean / train_total,
+                        "train_acc_clean": train_correct_clean / train_total,
+                        "train_loss_adv": train_loss_adv / train_total,
+                        "train_acc_adv": train_correct_adv / train_total,
+                        "test_loss_clean": test_loss_clean / test_total,
+                        "test_acc_clean": test_correct_clean / test_total,
+                        "test_loss_pgdrob": test_loss_rob / test_total,
+                        "test_acc_pgdrob": test_correct_rob / test_total,
+                        "test_acc_dknn": test_correct_dknn / test_total
+                    })
+                if test_correct_dknn / test_total > best_acc and test_correct_clean / test_total > 0.83:
+                    best_acc = test_correct_dknn / test_total
+                    state_dict = model.state_dict()
+                    epoch = e + 1
+                    optimizer_state = optimizer.state_dict()
+                    torch.save({
+                        "state_dict": state_dict,
+                        "epoch": epoch,
+                        "best_acc": best_acc,
+                        "optimizer_state": optimizer_state,
+                    }, checkpoint_path)
