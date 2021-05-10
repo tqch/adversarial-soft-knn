@@ -35,8 +35,8 @@ class DKNN:
         self.n_class = n_class
         self.metric = metric
         self.n_neighbors = n_neighbors
-        self._nns = self._build_nns()
         self.batch_size = batch_size
+        self._nns = self._build_nns()
 
     def _get_hidden_repr(self, x, return_targets=False):
         hidden_reprs = []
