@@ -56,24 +56,3 @@ class PGD:
             x_adv.append(x_adv_batch)
         return torch.cat(x_adv, dim=0).cpu()
 
-    def attack_aux(self, model, x, y, x_adv=None, targets=None):
-        if x_adv is None:
-            if self.random_init:
-                x_adv = 2 * self.step_size * (torch.rand_like(x) - 0.5) + x
-                x_adv = x_adv.clamp(0.0, 1.0)
-            else:
-                x_adv = torch.clone(x).detach()
-        x_adv.requires_grad_(True)
-        pred_adv = model(x_adv)
-        if isinstance(pred_adv, (list, tuple)):
-            pred_adv = pred_adv[0]
-        if self.targeted:
-            assert targets is not None, "Target labels not found!"
-            loss = self.loss_fn(pred_adv, targets)
-        else:
-            loss = self.loss_fn(pred_adv, y)
-        grad = torch.autograd.grad(loss, x_adv)[0]
-        pert = self.step_size * grad.sign()
-        x_adv = (x_adv + pert).clamp(0.0, 1.0).detach()
-        pert = (x_adv - x).clamp(-self.eps, self.eps)
-        return x + pert

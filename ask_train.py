@@ -42,8 +42,8 @@ parser.add_argument("--temperature", help="scaling factor for ask loss", type=fl
 parser.add_argument("--seed", help="random seed for reproducibility", type=int, default=3)
 parser.add_argument("--n-class", help="number of classes in the classification problem", type=int, default=10)
 parser.add_argument("--dataset", help="which dataset to use", choices=["cifar10", "imagenette"])
-parser.add_argument("--checkpoint", "-c", help="temporary checkpoint", default="./checkpoints/ask_trained.pt")
-parser.add_argument("--output", "-o", help="output log file", default="")
+parser.add_argument("--checkpoint", "-c", help="temporary checkpoint", default="./checkpoints/ask_train.pt")
+parser.add_argument("--output", "-o", help="output log file", default="./logs/ask_train.log")
 parser.add_argument("--download", "-d", help="whether to download the dataset", action="store_true")
 parser.add_argument("--disable-ask", help="disable ask training and use the standard adversarial training",
                     action="store_true")
