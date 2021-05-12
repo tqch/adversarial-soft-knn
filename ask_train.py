@@ -36,8 +36,10 @@ parser.add_argument("--eps-train", help="maximum perturbation of PGD attack duri
 parser.add_argument("--eps-eval", help="maximum perturbation of PGD attack during evaluation", type=int,
                     default=4)
 parser.add_argument("--step-size", help="step size of each attack", type=int, default=2)
-parser.add_argument("--max-iter", help="maximum iterations for attacks", type=int, default=10)
+parser.add_argument("--max-iter", help="maximum iterations for ask attacks", type=int, default=10)
 parser.add_argument("--metric", help="distance metric for ask loss and dknn", default="cosine")
+parser.add_argument("--no-random-init", help="whether not to use random initialization in ask attack",
+                    action="store_true")
 parser.add_argument("--temperature", help="scaling factor for ask loss", type=float, default=0.1)
 parser.add_argument("--seed", help="random seed for reproducibility", type=int, default=3)
 parser.add_argument("--n-class", help="number of classes in the classification problem", type=int, default=10)
@@ -68,7 +70,7 @@ disable_ask = args.disable_ask
 
 # load data
 trainloader, testloader = get_dataloaders(
-    dataset, root=root, download=download, batch_size=batch_size, augmentation=True)
+    dataset, root=root, download=download, batch_size=batch_size, augmentation=True, num_workers=args.num_workers)
 
 if dataset == "cifar10":
     model = VGG16()
@@ -77,7 +79,7 @@ if dataset == "imagenette":
 
 # dknn training data
 trainloader_dknn, _ = get_dataloaders(
-    dataset, root=root, download=download, batch_size=batch_size, augmentation=False)
+    dataset, root=root, download=download, batch_size=batch_size, augmentation=False, num_workers=args.num_workers)
 train_data = []
 train_targets = []
 for x, y in trainloader_dknn:
@@ -152,13 +154,13 @@ if os.path.exists(checkpoint_path):
     print("Checkpoint found!")
     print("Loading the checkpoint...")
     checkpoint = torch.load(checkpoint_path)
-    print("Last epoch: {}".format(checkpoint["checkpoint"]))
+    print("Last epoch: {}".format(checkpoint["epoch"]))
     print(f"Best adversarial accuracy of DkNN on hidden layer {hidden_layer} is {checkpoint['best_acc']}")
     print("Restarting training from the loaded checkpoint")
     best_acc = checkpoint["best_acc"]
-    last_epoch = checkpoint["checkpoint"] - 1
+    last_epoch = checkpoint["epoch"] - 1
     train_epochs = epochs - checkpoint["epoch"]
-    model.load_state_dict(checkpoint["state_dict"])
+    model.load_state_dict(checkpoint["model_state"])
     optimizer.load_state_dict(checkpoint["optimizer_state"])
 else:
     print("No checkpoint found! Random initializing...")
@@ -199,7 +201,10 @@ for e in range(train_epochs):
                 train_loss_clean += loss_ce.item() * x.size(0)
                 train_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
                 train_total += x.size(0)
-                x_hdadv = x.clone().detach() + (2 * torch.rand_like(x) - 1) * eps
+                if args.no_random_init:
+                    x_hdadv = x.clone().detach()
+                else:
+                    x_hdadv = x.clone().detach() + (2 * torch.rand_like(x) - 1) * eps
                 for _ in range(max_iter):
                     x_hdadv.requires_grad_(True)
                     out_hdadv, _ = model(x_hdadv.to(device), extra_out=hidden_layer)
@@ -318,7 +323,7 @@ for e in range(train_epochs):
                     epoch = e + 1
                     optimizer_state = optimizer.state_dict()
                     torch.save({
-                        "state_dict": state_dict,
+                        "model_state": state_dict,
                         "epoch": epoch,
                         "best_acc": best_acc,
                         "optimizer_state": optimizer_state,

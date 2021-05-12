@@ -86,7 +86,7 @@ def get_transforms(dataset="cifar10", augmentation=True):
             transforms.ToTensor()
         ]) if augmentation else transforms.ToTensor()
         transform_test = transforms.ToTensor()
-    if dataset == "imagenette":
+    elif dataset == "imagenette":
         transform_train = transforms.Compose([
             transforms.RandomCrop((128, 128), padding=4),
             transforms.RandomHorizontalFlip(),
@@ -99,6 +99,8 @@ def get_transforms(dataset="cifar10", augmentation=True):
             transforms.Resize((128, 128)),
             transforms.ToTensor()
         ])
+    else:
+        raise NotImplementedError
     return transform_train, transform_test
 
 
@@ -116,8 +118,10 @@ def get_dataloaders(
         transform_train, transform_test = get_transforms(dataset, False)
     if dataset == "cifar10":
         dataset_class = datasets.CIFAR10
-    if dataset == "imagenette":
+    elif dataset == "imagenette":
         dataset_class = Imagenette
+    else:
+        raise NotImplementedError
     trainset = dataset_class(root=root, download=download, train=True, transform=transform_train)
     testset = dataset_class(root=root, download=download, train=False, transform=transform_test)
     trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size, num_workers=num_workers)
