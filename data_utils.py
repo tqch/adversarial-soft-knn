@@ -54,6 +54,7 @@ class Imagenette(Dataset):
                 os.path.join(prefix, f) for f in os.listdir(prefix) if f.endswith("JPEG")))
             self.targets.extend(i for _ in range(len(self.data) - self.data_size))
             self.data_size = len(self.data)
+        self._shuffle()  # shuffle the data with the preset internal random seed
         self.transform = transform
 
     def _shuffle(self):
