@@ -182,6 +182,10 @@ for e in range(train_epochs):
         for i, (x, y) in enumerate(t):
             if not disable_ask:
                 x_ref = torch.cat(next(ref_data), dim=0)
+                # renew the reference dataloader
+                if x_ref.size(0) != n_class*n_ref:
+                    ref_data = iter(zip(*refloader))
+                    x_ref = torch.cat(next(ref_data), dim=0)
                 y_ref = torch.LongTensor(range(10)).repeat_interleave(n_ref)
                 if ref_advaug:
                     if mixed:
