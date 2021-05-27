@@ -1,5 +1,5 @@
 datasets/
-chkpts/
+checkpoints/
 logs/
 .idea/
 __pycache__/

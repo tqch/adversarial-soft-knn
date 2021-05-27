@@ -111,6 +111,7 @@ def get_dataloaders(
         download,
         batch_size,
         augmentation=True,
+        train_shuffle=True,
         num_workers=4
 ):
     if augmentation:
@@ -125,7 +126,7 @@ def get_dataloaders(
         raise NotImplementedError
     trainset = dataset_class(root=root, download=download, train=True, transform=transform_train)
     testset = dataset_class(root=root, download=download, train=False, transform=transform_test)
-    trainloader = DataLoader(trainset, shuffle=True, batch_size=batch_size, num_workers=num_workers)
+    trainloader = DataLoader(trainset, shuffle=train_shuffle, batch_size=batch_size, num_workers=num_workers)
     testloader = DataLoader(testset, shuffle=False, batch_size=batch_size, num_workers=num_workers)
 
     return trainloader, testloader

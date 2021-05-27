@@ -34,7 +34,7 @@ parser.add_argument("--eps-ask", help="maximum perturbation of ASK attack", type
 parser.add_argument("--eps-train", help="maximum perturbation of PGD attack during training", type=int,
                     default=4)
 parser.add_argument("--eps-eval", help="maximum perturbation of PGD attack during evaluation", type=int,
-                    default=4)
+                    default=8)
 parser.add_argument("--step-size", help="step size of each attack", type=int, default=2)
 parser.add_argument("--max-iter", help="maximum iterations for ask attacks", type=int, default=10)
 parser.add_argument("--metric", help="distance metric for ask loss and dknn", default="cosine")
@@ -178,7 +178,7 @@ for e in range(train_epochs):
     train_total = 0
     model.train()
     ref_data = iter(zip(*refloader))
-    with tqdm(trainloader, desc=f"{last_epoch + 2 + e}/{train_epochs} epochs") as t:
+    with tqdm(trainloader, desc=f"{last_epoch + 2 + e}/{epochs} epochs") as t:
         for i, (x, y) in enumerate(t):
             if not disable_ask:
                 x_ref = torch.cat(next(ref_data), dim=0)
