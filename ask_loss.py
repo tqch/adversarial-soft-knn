@@ -64,8 +64,8 @@ class ASKLoss(nn.Module):
             if self.metric == "cosine":
                 score_matrix = torch.zeros(x.size(0), x_ref.size(1)).to(x)
                 for i in range(x.size(0)):
-                    score_matrix[i, :] += x[[i]] @ x_ref[i] / x[i].pow(2).sum().sqrt()\
-                                          / x_ref[[i]].pow(2).sum(dim=-1, keepdim=True).sqrt()
+                    score_matrix[i, :] += x[i] @ x_ref[i].T / x[i].pow(2).sum().sqrt()\
+                                          / x_ref[i].pow(2).sum(dim=-1).sqrt()
                 if x_other is not None:
                     score_orig = (x * x_other).sum(dim=-1) / x.pow(2).sum(dim=-1).sqrt() / x_other.pow(2).sum(dim=-1).sqrt()
         soft_nns = torch.zeros(x.size(0), 10).to(x)

@@ -85,6 +85,11 @@ class ASKAttack:
                     hidden_reprs_batch, outs_batch = self._model(x_batch.to(self.device))
                 else:
                     hidden_reprs_batch, _ = self._model(x_batch.to(self.device))
+            if self.metric == "cosine":
+                hidden_reprs_batch = [
+                    hidden_repr_batch / hidden_repr_batch.pow(2).sum(dim=-1, keepdim=True).sqrt()
+                    for hidden_repr_batch in hidden_reprs_batch
+                ]
             hidden_reprs_batch = [hidden_repr_batch.cpu() for hidden_repr_batch in hidden_reprs_batch]
             hidden_reprs.append(hidden_reprs_batch)
             if return_targets:
@@ -231,6 +236,8 @@ if __name__ == "__main__":
         train_data,
         train_targets,
         hidden_layers=[3, ],
+        max_iter=20,
+        metric="cosine",
         class_samp_size=100,
         device=device
     )
