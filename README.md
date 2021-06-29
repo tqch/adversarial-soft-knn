@@ -1,4 +1,4 @@
-# ASK: Adversarial Soft KNN
+# ASK: Adversarial Soft KNN [[paper]](https://arxiv.org/abs/2106.14300)
 
 ## CIFAR10 ASK robust training
 `python ask_train.py --dataset=cifar10`
