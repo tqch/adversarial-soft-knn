@@ -100,7 +100,7 @@ train_targets_dknn = train_targets[dknn_indices]
 
 # instantiate the losses
 loss_fn_ce = nn.CrossEntropyLoss()
-loss_fn_cknn = ASKLoss(temperature=temperature, metric=metric)
+loss_fn_cknn = ASKLoss(temperature=temperature, metric=metric)  # contrastive knn
 
 # pgd for training and evaluation
 pgd_train = PGD(
@@ -200,11 +200,13 @@ for e in range(train_epochs):
                 with torch.no_grad():
                     out_hd, out = model(x.to(device), extra_out=hidden_layer)
                     loss_ce = loss_fn_ce(out, y.to(device))
+                    out_hdref, _ = model(x_ref.to(device), extra_out=hidden_layer)
                 model.train()
-                out_hdref, _ = model(x_ref.to(device), extra_out=hidden_layer)
                 train_loss_clean += loss_ce.item() * x.size(0)
                 train_correct_clean += (out.max(dim=1)[1] == y.to(device)).sum().item()
                 train_total += x.size(0)
+                # generate adversarial examples w.r.t. cknn loss
+                model.eval()
                 if args.no_random_init:
                     x_hdadv = x.clone().detach()
                 else:
@@ -219,13 +221,16 @@ for e in range(train_epochs):
                     grad = torch.autograd.grad(loss_cknn, x_hdadv)[0].detach()
                     x_hdadv = (x_hdadv.data + step_size * grad.sign()).clamp(0, 1)
                     x_hdadv = ((x_hdadv - x).clamp(-eps, eps) + x).detach()
+                model.train()
+                out_hdadv, _ = model(x_hdadv.to(device), extra_out=hidden_layer)
+                out_hdref, _ = model(x_ref.to(device), extra_out=hidden_layer)
+                # generate adversarial examples w.r.t. ce loss
                 x_adv = pgd_train.generate(model, x, y, device=device)
                 model.train()
                 _, out_adv = model(x_adv.to(device), extra_out=hidden_layer)
-                out_hd, _ = model(x.to(device), extra_out=hidden_layer)
                 loss_ce = loss_fn_ce(out_adv.to(device), y.to(device))
-                out_hdadv, _ = model(x_hdadv.to(device), extra_out=hidden_layer)
                 if include_self:
+                    out_hd, _ = model(x.to(device), extra_out=hidden_layer)
                     loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device), out_hd)
                 else:
                     loss_cknn = loss_fn_cknn(out_hdadv, y.to(device), out_hdref, y_ref.to(device))
